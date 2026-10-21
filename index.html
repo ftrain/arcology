@@ -20,12 +20,13 @@
   .sys { border:1px solid var(--line); padding:8px; border-radius:4px; display:flex; flex-direction:column; gap:4px }
   .sys .bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden }
   .sys .bar i { display:block; height:100%; background:var(--ok) }
+  .row2 { display:flex; gap:4px; flex-wrap:wrap } .row2 button { flex:1; padding:6px 4px; font-size:13px }
   button { background:#161b22; color:var(--fg); border:1px solid #2a323c; padding:8px 10px; border-radius:4px; cursor:pointer; font:inherit }
   button:hover { border-color:var(--fg) }
   button:disabled { opacity:.4; cursor:default }
   .row { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; align-items:center }
   #log { border-top:1px solid var(--line); padding-top:8px; max-height:40vh; overflow:auto; color:var(--dim) }
-  #log p { margin:0 0 4px } #log p.ev { color:var(--warn) } #log p.day { color:var(--fg) }
+  #log p { margin:0 0 4px } #log p.ev { color:var(--warn) } #log p.week { color:var(--fg) }
   #over { display:none; border:1px solid var(--bad); padding:12px; margin-bottom:16px }
 </style>
 </head>
@@ -39,33 +40,39 @@
   <div class="row">
     <button id="rentDown">Rent -5%</button>
     <button id="rentUp">Rent +5%</button>
-    <button id="wait">Hold (next day)</button>
+    <button id="wait">Hold (next week)</button>
+    <button id="year">Hold a year</button>
     <button id="auto">Autoplay</button>
     <button id="reset">New seed</button>
   </div>
   <div id="log"></div>
 </main>
 <script>
-// ARCOLOGY v1. A seeded, deterministic day-by-day simulation of one vast
-// arcology on the Hudson. You are its operator. Keep it running.
+// ARCOLOGY v1. A seeded, deterministic week-by-week simulation of one vast
+// arcology on the Hudson, over a century. You are its operator. Keep it running.
 
+// weeks: how long a project takes to come online once commissioned.
 const SYSTEMS = {
-  housing:  { name:'Residential decks', unit:'beds',   per:12000, cost:320,  upkeep:.30, desc:'Each deck houses 12,000 people.' },
-  power:    { name:'Fusion & solar',    unit:'MW',     per:180,   cost:260,  upkeep:.25, desc:'Everyone needs 12 kW. Farms and water need more.' },
-  water:    { name:'Hudson desal',      unit:'ML/day', per:60,    cost:180,  upkeep:.15, desc:'Each resident drinks, washes and flushes 150 L a day.' },
-  food:     { name:'Vertical farms',    unit:'t/day',  per:120,   cost:210,  upkeep:.20, desc:'Half the food is grown in-tower. The rest is trucked in through the Lincoln Tunnel.' },
-  waste:    { name:'Reclamation',       unit:'t/day',  per:150,   cost:160,  upkeep:.12, desc:'Composts, recycles and pumps sludge to Newtown Creek.' },
-  clinics:  { name:'Clinics & schools', unit:'seats',  per:8000,  cost:230,  upkeep:.35, desc:'Health, childcare, schools. Morale sags without them.' },
-  commerce: { name:'Commercial floors', unit:'jobs',   per:9000,  cost:290,  upkeep:.15, desc:'Jobs and tax revenue. Needs residents to fill them.' },
-  transit:  { name:'Transit links',     unit:'riders', per:40000, cost:380, upkeep:.30, desc:'Skybridges, the 7 train spur, the ferry slip. Lets people and goods move.' },
+  housing:  { name:'Residential decks', unit:'beds',   per:12000, cost:320, weeks:78,  upkeep:.30, desc:'Each deck houses 12,000 people. A year and a half to build.' },
+  power:    { name:'Fusion & solar',    unit:'MW',     per:180,   cost:260, weeks:104, upkeep:.25, desc:'Everyone needs 12 kW. Farms and water need more. Two years.' },
+  water:    { name:'Hudson desal',      unit:'ML/day', per:60,    cost:180, weeks:52,  upkeep:.15, desc:'Each resident drinks, washes and flushes 150 L a day. A year.' },
+  food:     { name:'Vertical farms',    unit:'t/day',  per:120,   cost:210, weeks:26,  upkeep:.20, desc:'Half the food is grown in-tower. The rest comes through the Lincoln Tunnel. Six months.' },
+  waste:    { name:'Reclamation',       unit:'t/day',  per:150,   cost:160, weeks:39,  upkeep:.12, desc:'Composts, recycles and pumps sludge to Newtown Creek. Nine months.' },
+  clinics:  { name:'Clinics & schools', unit:'seats',  per:8000,  cost:230, weeks:30,  upkeep:.35, desc:'Health, childcare, schools. Morale sags without them. Seven months.' },
+  commerce: { name:'Commercial floors', unit:'jobs',   per:9000,  cost:290, weeks:40,  upkeep:.15, desc:'Jobs and tax revenue. Needs residents to fill them. Ten months.' },
+  transit:  { name:'Transit links',     unit:'riders', per:40000, cost:380, weeks:156, upkeep:.30, desc:'Skybridges, the 7 train spur, the ferry slip. Three years.' },
 };
+// Construction crews: a bigger arcology can carry more projects at once.
+const crews = s => 3 + Math.floor(Object.values(s.levels).reduce((a,b)=>a+b,0)/8);
+const busy = s => s.projects.filter(p=>!p.refit).length;   // refits are maintenance, not construction
 
+// p is the chance of each event in a given week.
 const EVENTS = [
-  { p:.06, text:'Heat wave over the five boroughs. Cooling load spikes.', fx:s=>{s.mods.power=1.35} },
+  { p:.08, text:'Heat wave over the five boroughs. Cooling load spikes.', fx:s=>{s.mods.power=1.35} },
   { p:.04, text:'Con Edison grid fault. Your tower is on its own tonight.', fx:s=>{s.mods.power=1.6} },
   { p:.05, text:'Nor\'easter. Storm surge closes the ferry slip and the tunnel.', fx:s=>{s.mods.transit=.5; s.mods.food=1.3} },
   { p:.05, text:'Sanitation strike. Nothing leaves the building.', fx:s=>{s.mods.waste=1.5} },
-  { p:.015, text:'City inspector finds code violations. Fine levied.', fx:s=>{s.money-=40; s.log('Paid $40M in fines.')} },
+  { p:.02, text:'City inspector finds code violations. Fine levied.', fx:s=>{s.money-=40; s.log('Paid $40M in fines.')} },
   { p:.05, text:'A tech firm leases three floors. Commerce booms.', fx:s=>{s.mods.commerce=1.4} },
   { p:.04, text:'Rent-strike meeting on deck 41. Morale wobbles.', fx:s=>{s.morale-=6} },
   { p:.03, text:'Fusion plant maintenance window. Output halved.', fx:s=>{s.mods.power=2} },
@@ -77,15 +84,22 @@ function rng(seed){ let a=seed>>>0; return ()=>{ a+=0x6D2B79F5; let t=a; t=Math.
 
 function newState(seed){
   const s = {
-    seed, rand:rng(seed), day:1, pop:60000, money:1500, morale:70, rent:1.0, over:null,
-    levels:{housing:6, power:5, water:2, food:1, waste:1, clinics:2, commerce:2, transit:1},
-    mods:{}, lines:[], log(t,c){ s.lines.unshift({t,c}); if(s.lines.length>200) s.lines.pop(); },
+    seed, rand:rng(seed), week:1, pop:60000, money:1500, morale:72, rent:1.0, over:null, net:null,
+    levels:{housing:6, power:6, water:2, food:1, waste:2, clinics:2, commerce:2, transit:2},
+    wear:{housing:0, power:0, water:0, food:0, waste:0, clinics:0, commerce:0, transit:0},
+    projects:[], mods:{}, lines:[], log(t,c){ s.lines.unshift({t,c}); if(s.lines.length>200) s.lines.pop(); },
   };
-  s.log('Day 1. The arcology opens on the Hudson at 34th Street. 60,000 residents move in.','day');
+  s.log('Week 1. The arcology opens on the Hudson at 34th Street. 60,000 residents move in.','week');
   return s;
 }
 
-function cap(s,k){ return SYSTEMS[k].per*s.levels[k]*(1/(s.mods[k]||1)); }
+const when = s => `Year ${Math.floor((s.week-1)/52)+1}, week ${(s.week-1)%52+1}`;
+function cap(s,k){ return SYSTEMS[k].per*s.levels[k]*(1-s.wear[k])*(1/(s.mods[k]||1)); }
+const WEAR = 0.0018;   // per week: about 9% of capacity a year, unless refitted
+function refitCost(s,k){ return 0.25*buildCost(s,k); }
+function refitting(s,k){ return s.projects.some(p=>p.k===k && p.refit); }
+function buildCost(s,k){ return SYSTEMS[k].cost*(1+s.levels[k]*0.03); }
+function inFlight(s,k){ return s.projects.filter(p=>p.k===k).length; }
 
 // Demand each system faces, in that system's units.
 function demand(s){
@@ -103,63 +117,94 @@ function demand(s){
 
 function ratio(s,k){ const d=demand(s)[k]; return d===0?1:Math.min(1.5, cap(s,k)/d); }
 
+function commission(s,k){
+  const c = buildCost(s,k);
+  if (busy(s)>=crews(s)) { s.log(`Every crew is busy. ${crews(s)} projects is the limit for now.`); return false; }
+  if (s.money<c) { s.log(`Cannot afford ${SYSTEMS[k].name}.`); return false; }
+  s.money-=c; s.projects.push({k, left:SYSTEMS[k].weeks});
+  s.log(`Commissioned ${SYSTEMS[k].name} level ${s.levels[k]+inFlight(s,k)} for $${c.toFixed(0)}M. Opens in ${SYSTEMS[k].weeks} weeks.`);
+  return true;
+}
+
+function refit(s,k){
+  const c = refitCost(s,k);
+  if (s.money<c) { s.log(`Cannot afford to refit ${SYSTEMS[k].name}.`); return false; }
+  if (refitting(s,k)) return false;
+  s.money-=c; s.projects.push({k, left:8, refit:true});
+  s.log(`Refit of ${SYSTEMS[k].name} begins: $${c.toFixed(0)}M, eight weeks.`);
+  return true;
+}
+
 function tick(s, action){
   s.mods = {};
-  // Build
-  if (action && SYSTEMS[action]) {
-    const c = SYSTEMS[action].cost*(1+s.levels[action]*0.05);
-    if (s.money>=c) { s.money-=c; s.levels[action]++; s.log(`Built ${SYSTEMS[action].name} level ${s.levels[action]} for $${(c/1000).toFixed(1)}M.`); }
-    else s.log(`Cannot afford ${SYSTEMS[action].name}.`);
-  }
-  // Events
-  for (const e of EVENTS) if (s.rand()<e.p) { s.log(e.text,'ev'); e.fx(s); }
+  if (action && action.startsWith('refit:')) refit(s, action.slice(6));
+  else if (action && SYSTEMS[action]) commission(s,action);
+  for (const k in SYSTEMS) s.wear[k] = Math.min(0.9, s.wear[k]+WEAR);
 
-  // Supply vs demand
-  const r = {}; for (const k in SYSTEMS) r[k]=ratio(s,k);
-  let dm = 0;
+  // Construction
+  for (const p of s.projects) p.left--;
+  for (const p of s.projects.filter(p=>p.left<=0)) { if (p.refit) { s.wear[p.k]=0; s.log(`${SYSTEMS[p.k].name} refit complete. Good as new.`); } else { s.levels[p.k]++; s.log(`${SYSTEMS[p.k].name} level ${s.levels[p.k]} opens.`); } }
+  s.projects = s.projects.filter(p=>p.left>0);
+
+  // Supply vs demand. Chronic shortfalls wear on people all week; an event
+  // (a heat wave, a strike) is a bad day or two on top of that.
   const weight = {housing:14, power:12, water:12, food:6, waste:5, clinics:6, commerce:4, transit:5};
-  for (const k in r) { if (r[k]<1) dm -= weight[k]*(1-r[k]); else dm += 0.1; }
-  dm -= (s.rent-1)*10;      // expensive rent hurts
-  dm += 0.8;                // baseline drift up when things work
+  const mood = () => { let dm=0; for (const k in SYSTEMS) { const r=ratio(s,k); if (r<1) dm -= weight[k]*(1-r); else dm += 0.1; } return dm; };
+  const chronic = mood();
+  for (const e of EVENTS) if (s.rand()<e.p) { s.log(e.text,'ev'); e.fx(s); }
+  const acute = mood() - chronic;
+  let dm = chronic*3 + acute;
+  dm -= (s.rent-1)*10*3;    // expensive rent hurts
+  dm += 0.8*3;              // baseline drift up when things work
   s.morale = Math.max(0, Math.min(100, s.morale + dm));
 
-  // Population: morale drives it; housing caps it hard
-  const want = (s.morale-50)/50 * 0.004 * s.pop;
-  s.pop = Math.round(s.pop + want + (s.rand()-0.5)*400);
+  // Population: morale draws people in or drives them out; the beds cap it.
+  const want = (s.morale-50)/50 * 0.004 * s.pop / (1 + Math.pow(s.pop/2e6,2));   // the city only has so many people to give
+  s.pop = Math.round(s.pop + want + (s.rand()-0.5)*0.003*s.pop);
   const beds = cap(s,'housing');
-  if (s.pop>beds) { s.log(`${Math.round(s.pop-beds).toLocaleString()} people turned away at the lobby. No beds.`,'ev'); s.pop=Math.round(beds); }
+  if (s.pop>beds) { if (s.pop-beds>500) s.log(`${Math.round(s.pop-beds).toLocaleString()} people turned away at the lobby. No beds.`,'ev'); s.pop=Math.round(beds); }
   s.pop = Math.max(1000, s.pop);
 
-  // Money. Rent per resident per day (in $k): $1,800/month baseline.
+  // Money, per week, in $M. Rent is $1,800/month, about $60 a day per resident.
   const occupancy = Math.min(1, s.pop/beds);
-  // All money is in $M. Rent is $1,800/month, about $60 a day per resident.
   const rentIncome = s.pop * 60 * s.rent * (0.6+0.4*occupancy) / 1e6;
   const jobs = Math.min(demand(s).commerce, cap(s,'commerce')) * (s.mods.commerce||1);
   const tax = jobs * 300 / 1e6;   // each job is worth $300 a day in leases and tax
-  let upkeep = 0; for (const k in SYSTEMS) upkeep += SYSTEMS[k].upkeep*s.levels[k];
-  const net = rentIncome + tax - upkeep;
+  const net = 7*(rentIncome + tax - upkeepOf(s));
   s.money += net; s.net = net;
 
-  s.day++;
-  s.log(`Day ${s.day}. Pop ${s.pop.toLocaleString()}, morale ${Math.round(s.morale)}, net $${net.toFixed(1)}M.`,'day');
+  s.week++;
+  s.log(`${when(s)}. Pop ${s.pop.toLocaleString()}, morale ${Math.round(s.morale)}, net $${net.toFixed(1)}M.`,'week');
 
   if (s.morale<=5) s.over = 'The residents have left. The tower stands empty over the river.';
   if (s.money<-1000) s.over = 'The city has taken the arcology into receivership.';
-  if (s.day>365) s.over = 'A year. The arcology is a part of New York now.';
+  if (s.week>5200) s.over = 'A century. The arcology has outlived everyone who built it. New York goes on.';
   return s;
 }
+function upkeepOf(s){ let u=0; for (const k in SYSTEMS) u += SYSTEMS[k].upkeep*s.levels[k]; return u; }
 
-// A simple operator for autoplay: fix the worst shortfall it can afford.
+// A simple operator for autoplay. It looks as far ahead as each project takes
+// to build, commissions the system that will be shortest by then, and keeps a
+// reserve so it is never caught by a bad winter.
 function aiPick(s){
-  if (s.morale>85 && s.rent<1.5) s.rent+=.05; else if (s.morale<40 && s.rent>.7) s.rent-=.05;
-  let worst=null, wr=1.1;
-  for (const k in SYSTEMS) { const r=ratio(s,k); if (r<wr) { wr=r; worst=k; } }
-  let upkeep = 0; for (const k in SYSTEMS) upkeep += SYSTEMS[k].upkeep*s.levels[k];
-  const reserve = 45*upkeep;   // six weeks of running costs
+  if (s.morale>88 && s.rent<1.3) s.rent+=.05; else if (s.morale<65 && s.rent>.9) s.rent-=.05; else if (s.morale<45 && s.rent>.7) s.rent-=.05;
+  let tired=null, tw=0.12;
+  for (const k in SYSTEMS) if (s.wear[k]>tw && !refitting(s,k)) { tw=s.wear[k]; tired=k; }
+  if (tired && s.money > refitCost(s,tired)) return 'refit:'+tired;
+  if (busy(s)>=crews(s)) return null;
+  let refitAll = 0; for (const k in SYSTEMS) refitAll += refitCost(s,k);
+  const reserve = 6*7*upkeepOf(s) + refitAll;
+  const d = demand(s), growth = Math.max(0, (s.morale-50)/50*0.004/(1+Math.pow(s.pop/2e6,2)));
+  let pick=null, worst=1.15;
+  for (const k in SYSTEMS) {
+    const sy=SYSTEMS[k];
+    const future = SYSTEMS[k].per*(s.levels[k]+inFlight(s,k)-s.projects.filter(p=>p.k===k&&p.refit).length)*(1-s.wear[k]) / (d[k]*Math.pow(1+growth, sy.weeks));
+    if (future<worst) { worst=future; pick=k; }
+  }
+  if (!pick) return null;
   const losing = s.net!=null && s.net<0;
-  if (worst && (!losing || wr<0.9) && s.money > SYSTEMS[worst].cost*(1+s.levels[worst]*0.05)+reserve) return worst;
-  if (!losing && s.money > 1200+reserve && ratio(s,'housing')<1.25) return 'housing';
-  return null;
+  if ((losing && worst>0.9) || s.money < buildCost(s,pick)+reserve) return null;
+  return pick;
 }
 
 // UI
@@ -167,37 +212,43 @@ let S, autoTimer=null;
 const $ = id=>document.getElementById(id);
 function cls(r){ return r>=1?'ok':r>=.8?'warn':'bad'; }
 function render(){
-  $('sub').textContent = `Seed ${S.seed} · Day ${S.day} · Hudson Yards, New York`;
+  $('sub').textContent = `Seed ${S.seed} · ${when(S)} of 100 · Hudson Yards, New York`;
   const d = demand(S);
   $('stats').innerHTML = [
     ['Residents', S.pop.toLocaleString(), ''],
-    ['Treasury', `$${(S.money/1000).toFixed(1)}B`, S.money<0?'bad':''],
+    ['Treasury', `$${(S.money/1000).toFixed(2)}B`, S.money<0?'bad':''],
     ['Morale', Math.round(S.morale), cls(S.morale/60)],
-    ['Rent', `${Math.round(S.rent*1800)}/mo`, ''],
-    ['Yesterday', S.net==null?'—':`${S.net>=0?'+':''}$${S.net.toFixed(1)}M`, S.net<0?'bad':'ok'],
+    ['Rent', `$${Math.round(S.rent*1800)}/mo`, ''],
+    ['Last week', S.net==null?'—':`${S.net>=0?'+':''}$${S.net.toFixed(1)}M`, S.net<0?'bad':'ok'],
+    ['Crews', `${busy(S)} / ${crews(S)} busy`, busy(S)>=crews(S)?'warn':''],
   ].map(([n,v,c])=>`<div class="stat"><small>${n}</small><b class="${c}">${v}</b></div>`).join('');
   $('systems').innerHTML = Object.keys(SYSTEMS).map(k=>{
-    const sy=SYSTEMS[k], r=ratio(S,k), c=cap(S,k), cost=sy.cost*(1+S.levels[k]*0.05);
-    return `<div class="sys"><div><b>${sy.name}</b> <span class="${cls(r)}">L${S.levels[k]}</span></div>
+    const sy=SYSTEMS[k], r=ratio(S,k), c=cap(S,k), cost=buildCost(S,k);
+    const building = S.projects.filter(p=>p.k===k).map(p=>`${p.refit?'refit ':''}${p.left} wk`).join(', ');
+    const wear = Math.round(S.wear[k]*100), rc = refitCost(S,k);
+    return `<div class="sys"><div><b>${sy.name}</b> <span class="${cls(r)}">L${S.levels[k]}</span>${building?` <small class="warn">building: ${building}</small>`:''}</div>
       <div class="bar"><i style="width:${Math.min(100,r*100/1.5)}%;background:var(--${cls(r)})"></i></div>
       <small>${Math.round(c).toLocaleString()} / ${Math.round(d[k]).toLocaleString()} ${sy.unit}</small>
       <small style="color:var(--dim)">${sy.desc}</small>
-      <button data-k="${k}" ${S.over||S.money<cost?'disabled':''}>Build · $${(cost/1000).toFixed(1)}M</button></div>`;
+      <small>Wear <span class="${wear>30?'bad':wear>15?'warn':''}">${wear}%</span></small>
+      <div class="row2"><button data-k="${k}" ${S.over||S.money<cost||busy(S)>=crews(S)?'disabled':''}>Build · $${cost.toFixed(0)}M · ${sy.weeks} wk</button>
+      <button data-r="${k}" ${S.over||S.money<rc||refitting(S,k)?'disabled':''}>Refit · $${rc.toFixed(0)}M · 8 wk</button></div></div>`;
   }).join('');
   $('log').innerHTML = S.lines.map(l=>`<p class="${l.c||''}">${l.t}</p>`).join('');
   $('over').style.display = S.over?'block':'none'; $('over').textContent = S.over||'';
   document.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>step(b.dataset.k));
+  document.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>step('refit:'+b.dataset.r));
 }
 function step(a){ if (S.over) return; tick(S,a); render(); }
-function start(seed){ clearInterval(autoTimer); autoTimer=null; $('auto').textContent='Autoplay'; S=newState(seed); location.hash=seed; S.net=null; render(); }
+function start(seed){ clearInterval(autoTimer); autoTimer=null; $('auto').textContent='Autoplay'; S=newState(seed); location.hash=seed; render(); }
 $('wait').onclick=()=>step(null);
+$('year').onclick=()=>{ for (let i=0;i<52&&!S.over;i++) tick(S,null); render(); };
 $('rentUp').onclick=()=>{S.rent=Math.min(2,S.rent+.05); S.log(`Rent raised to $${Math.round(S.rent*1800)}/mo.`); render();};
 $('rentDown').onclick=()=>{S.rent=Math.max(.5,S.rent-.05); S.log(`Rent cut to $${Math.round(S.rent*1800)}/mo.`); render();};
 $('reset').onclick=()=>start((Math.random()*1e9)|0);
 $('auto').onclick=()=>{ if (autoTimer){ clearInterval(autoTimer); autoTimer=null; $('auto').textContent='Autoplay'; return; }
-  $('auto').textContent='Stop'; autoTimer=setInterval(()=>{ if (S.over){ clearInterval(autoTimer); autoTimer=null; $('auto').textContent='Autoplay'; return; } step(aiPick(S)); },120); };
+  $('auto').textContent='Stop'; autoTimer=setInterval(()=>{ if (S.over){ clearInterval(autoTimer); autoTimer=null; $('auto').textContent='Autoplay'; return; } step(aiPick(S)); },30); };
 start(parseInt(location.hash.slice(1))||20261021);
-if (typeof module!=='undefined') module.exports={newState,tick,aiPick,ratio};
 </script>
 </body>
 </html>
