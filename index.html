@@ -50,14 +50,14 @@
 // arcology on the Hudson. You are its operator. Keep it running.
 
 const SYSTEMS = {
-  housing:  { name:'Residential decks', unit:'beds',   per:12000, cost:900,  upkeep:.30, desc:'Each deck houses 12,000 people.' },
-  power:    { name:'Fusion & solar',    unit:'MW',     per:180,   cost:700,  upkeep:.25, desc:'Everyone needs 12 kW. Farms and water need more.' },
-  water:    { name:'Hudson desal',      unit:'ML/day', per:60,    cost:500,  upkeep:.15, desc:'Each resident drinks, washes and flushes 150 L a day.' },
-  food:     { name:'Vertical farms',    unit:'t/day',  per:120,   cost:600,  upkeep:.20, desc:'Half the food is grown in-tower. The rest is trucked in through the Lincoln Tunnel.' },
-  waste:    { name:'Reclamation',       unit:'t/day',  per:150,   cost:450,  upkeep:.12, desc:'Composts, recycles and pumps sludge to Newtown Creek.' },
-  clinics:  { name:'Clinics & schools', unit:'seats',  per:8000,  cost:650,  upkeep:.35, desc:'Health, childcare, schools. Morale sags without them.' },
-  commerce: { name:'Commercial floors', unit:'jobs',   per:9000,  cost:800,  upkeep:.15, desc:'Jobs and tax revenue. Needs residents to fill them.' },
-  transit:  { name:'Transit links',     unit:'riders', per:40000, cost:1100, upkeep:.30, desc:'Skybridges, the 7 train spur, the ferry slip. Lets people and goods move.' },
+  housing:  { name:'Residential decks', unit:'beds',   per:12000, cost:320,  upkeep:.30, desc:'Each deck houses 12,000 people.' },
+  power:    { name:'Fusion & solar',    unit:'MW',     per:180,   cost:260,  upkeep:.25, desc:'Everyone needs 12 kW. Farms and water need more.' },
+  water:    { name:'Hudson desal',      unit:'ML/day', per:60,    cost:180,  upkeep:.15, desc:'Each resident drinks, washes and flushes 150 L a day.' },
+  food:     { name:'Vertical farms',    unit:'t/day',  per:120,   cost:210,  upkeep:.20, desc:'Half the food is grown in-tower. The rest is trucked in through the Lincoln Tunnel.' },
+  waste:    { name:'Reclamation',       unit:'t/day',  per:150,   cost:160,  upkeep:.12, desc:'Composts, recycles and pumps sludge to Newtown Creek.' },
+  clinics:  { name:'Clinics & schools', unit:'seats',  per:8000,  cost:230,  upkeep:.35, desc:'Health, childcare, schools. Morale sags without them.' },
+  commerce: { name:'Commercial floors', unit:'jobs',   per:9000,  cost:290,  upkeep:.15, desc:'Jobs and tax revenue. Needs residents to fill them.' },
+  transit:  { name:'Transit links',     unit:'riders', per:40000, cost:380, upkeep:.30, desc:'Skybridges, the 7 train spur, the ferry slip. Lets people and goods move.' },
 };
 
 const EVENTS = [
@@ -65,7 +65,7 @@ const EVENTS = [
   { p:.04, text:'Con Edison grid fault. Your tower is on its own tonight.', fx:s=>{s.mods.power=1.6} },
   { p:.05, text:'Nor\'easter. Storm surge closes the ferry slip and the tunnel.', fx:s=>{s.mods.transit=.5; s.mods.food=1.3} },
   { p:.05, text:'Sanitation strike. Nothing leaves the building.', fx:s=>{s.mods.waste=1.5} },
-  { p:.04, text:'City inspector finds code violations. Fine levied.', fx:s=>{s.money-=120; s.log('Paid $120M in fines.')} },
+  { p:.015, text:'City inspector finds code violations. Fine levied.', fx:s=>{s.money-=40; s.log('Paid $40M in fines.')} },
   { p:.05, text:'A tech firm leases three floors. Commerce booms.', fx:s=>{s.mods.commerce=1.4} },
   { p:.04, text:'Rent-strike meeting on deck 41. Morale wobbles.', fx:s=>{s.morale-=6} },
   { p:.03, text:'Fusion plant maintenance window. Output halved.', fx:s=>{s.mods.power=2} },
@@ -77,7 +77,7 @@ function rng(seed){ let a=seed>>>0; return ()=>{ a+=0x6D2B79F5; let t=a; t=Math.
 
 function newState(seed){
   const s = {
-    seed, rand:rng(seed), day:1, pop:60000, money:3000, morale:70, rent:1.0, over:null,
+    seed, rand:rng(seed), day:1, pop:60000, money:1500, morale:70, rent:1.0, over:null,
     levels:{housing:6, power:5, water:2, food:1, waste:1, clinics:2, commerce:2, transit:1},
     mods:{}, lines:[], log(t,c){ s.lines.unshift({t,c}); if(s.lines.length>200) s.lines.pop(); },
   };
@@ -107,7 +107,7 @@ function tick(s, action){
   s.mods = {};
   // Build
   if (action && SYSTEMS[action]) {
-    const c = SYSTEMS[action].cost*(1+s.levels[action]*0.08);
+    const c = SYSTEMS[action].cost*(1+s.levels[action]*0.05);
     if (s.money>=c) { s.money-=c; s.levels[action]++; s.log(`Built ${SYSTEMS[action].name} level ${s.levels[action]} for $${(c/1000).toFixed(1)}M.`); }
     else s.log(`Cannot afford ${SYSTEMS[action].name}.`);
   }
@@ -120,14 +120,14 @@ function tick(s, action){
   const weight = {housing:14, power:12, water:12, food:6, waste:5, clinics:6, commerce:4, transit:5};
   for (const k in r) { if (r[k]<1) dm -= weight[k]*(1-r[k]); else dm += 0.1; }
   dm -= (s.rent-1)*10;      // expensive rent hurts
-  dm += 0.4;                // baseline drift up when things work
+  dm += 0.8;                // baseline drift up when things work
   s.morale = Math.max(0, Math.min(100, s.morale + dm));
 
   // Population: morale drives it; housing caps it hard
   const want = (s.morale-50)/50 * 0.004 * s.pop;
   s.pop = Math.round(s.pop + want + (s.rand()-0.5)*400);
   const beds = cap(s,'housing');
-  if (s.pop>beds*1.05) { s.log(`${Math.round(s.pop-beds).toLocaleString()} people are sleeping in corridors.`,'ev'); s.pop=Math.round(beds*1.05); }
+  if (s.pop>beds) { s.log(`${Math.round(s.pop-beds).toLocaleString()} people turned away at the lobby. No beds.`,'ev'); s.pop=Math.round(beds); }
   s.pop = Math.max(1000, s.pop);
 
   // Money. Rent per resident per day (in $k): $1,800/month baseline.
@@ -152,11 +152,13 @@ function tick(s, action){
 // A simple operator for autoplay: fix the worst shortfall it can afford.
 function aiPick(s){
   if (s.morale>85 && s.rent<1.5) s.rent+=.05; else if (s.morale<40 && s.rent>.7) s.rent-=.05;
-  let worst=null, wr=1.05;
+  let worst=null, wr=1.1;
   for (const k in SYSTEMS) { const r=ratio(s,k); if (r<wr) { wr=r; worst=k; } }
-  const reserve = 400;
-  if (worst && s.money > SYSTEMS[worst].cost*(1+s.levels[worst]*0.08)+reserve) return worst;
-  if (s.money > 2500 && ratio(s,'housing')<1.2) return 'housing';
+  let upkeep = 0; for (const k in SYSTEMS) upkeep += SYSTEMS[k].upkeep*s.levels[k];
+  const reserve = 45*upkeep;   // six weeks of running costs
+  const losing = s.net!=null && s.net<0;
+  if (worst && (!losing || wr<0.9) && s.money > SYSTEMS[worst].cost*(1+s.levels[worst]*0.05)+reserve) return worst;
+  if (!losing && s.money > 1200+reserve && ratio(s,'housing')<1.25) return 'housing';
   return null;
 }
 
@@ -175,7 +177,7 @@ function render(){
     ['Yesterday', S.net==null?'—':`${S.net>=0?'+':''}$${S.net.toFixed(1)}M`, S.net<0?'bad':'ok'],
   ].map(([n,v,c])=>`<div class="stat"><small>${n}</small><b class="${c}">${v}</b></div>`).join('');
   $('systems').innerHTML = Object.keys(SYSTEMS).map(k=>{
-    const sy=SYSTEMS[k], r=ratio(S,k), c=cap(S,k), cost=sy.cost*(1+S.levels[k]*0.08);
+    const sy=SYSTEMS[k], r=ratio(S,k), c=cap(S,k), cost=sy.cost*(1+S.levels[k]*0.05);
     return `<div class="sys"><div><b>${sy.name}</b> <span class="${cls(r)}">L${S.levels[k]}</span></div>
       <div class="bar"><i style="width:${Math.min(100,r*100/1.5)}%;background:var(--${cls(r)})"></i></div>
       <small>${Math.round(c).toLocaleString()} / ${Math.round(d[k]).toLocaleString()} ${sy.unit}</small>
