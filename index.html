@@ -212,7 +212,7 @@ let S, autoTimer=null;
 const $ = id=>document.getElementById(id);
 function cls(r){ return r>=1?'ok':r>=.8?'warn':'bad'; }
 function render(){
-  $('sub').textContent = `Seed ${S.seed} · ${when(S)} of 100 · Hudson Yards, New York`;
+  $('sub').textContent = `Seed ${S.seed} · Year ${Math.floor((S.week-1)/52)+1} of 100 · Week ${(S.week-1)%52+1} · Hudson Yards, New York`;
   const d = demand(S);
   $('stats').innerHTML = [
     ['Residents', S.pop.toLocaleString(), ''],
